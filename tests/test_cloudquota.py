@@ -158,6 +158,45 @@ class CloudQuotaTest(unittest.TestCase):
         for worker in workers:worker.join()
         self.assertCountEqual(results,["issued","lender_floor"])
 
+    def test_replay_identity_preserves_original_commitment(self):
+        self.assertEqual(budget.revise(self.db,"b","t",8,8,1,0),"accepted")
+        self.assertEqual(budget.revise(self.db,"b","t",8,8,1,0),"accepted")
+        with self.assertRaises(ValueError):
+            budget.revise(self.db,"b","t",2,2,2,0)
+        reserve.node(self.db,"n","a",8,8)
+        reserve.request(self.db,"w","t","g",2,2)
+        self.assertEqual(reserve.place(self.db,"p","r","w",10,1),"reserved:n")
+        self.assertEqual(reserve.place(self.db,"p","r","w",10,1),"reserved:n")
+        with self.assertRaises(ValueError):
+            reserve.place(self.db,"p","other","w",10,1)
+        reserve.policy(self.db,"g",0)
+        self.assertEqual(reserve.shrink(self.db,"c","r"),"approved")
+        self.assertEqual(reserve.shrink(self.db,"c","r"),"approved")
+        self.assertEqual(reserve.shrink(self.db,"c","other"),"case_identity_conflict")
+
+    def test_invalid_resource_and_time_inputs_never_create_commitment(self):
+        self.assertEqual(budget.revise(self.db,"bad","t",-1,8,1,0),"invalid_budget")
+        self.assertEqual(reserve.node(self.db,"n","a",-2,8),"invalid_capacity")
+        self.assertEqual(reserve.request(self.db,"w","t","g",-1,2),"invalid_request")
+        self.assertEqual(loan.offer(self.db,"o","t",-2,2,0,0,10),"invalid_offer")
+        self.assertEqual(loan.issue(self.db,"i","L","o","t",-1,2,10,1),"invalid_loan")
+        self.assertIsNone(one(self.db,"SELECT * FROM budgets WHERE tenant='t'"))
+        self.assertIsNone(one(self.db,"SELECT * FROM nodes WHERE id='n'"))
+        budget.revise(self.db,"b","t",5,5,1,0)
+        reserve.node(self.db,"n","a",5,5)
+        reserve.request(self.db,"w","t","g",1,1)
+        self.assertEqual(reserve.place(self.db,"p","r","w",1,1),"invalid_lease_window")
+        self.assertIsNone(one(self.db,"SELECT * FROM reservations WHERE id='r'"))
+
+    def test_partial_failure_cannot_start_unfunded_reservation(self):
+        budget.revise(self.db,"b","t",5,5,1,0)
+        reserve.node(self.db,"n","a",5,5)
+        reserve.request(self.db,"w","t","g",1,1)
+        self.db.execute("INSERT INTO reservations VALUES(?,?,?,?,?,?,?,?)",("r","w","n","unallocated",10,0,0,1))
+        self.db.commit()
+        self.assertEqual(reserve.start(self.db,"s","r",1,2),"unfunded_reservation")
+        self.assertEqual(one(self.db,"SELECT started FROM reservations WHERE id='r'")["started"],0)
+
 
 if __name__ == "__main__":
     unittest.main()

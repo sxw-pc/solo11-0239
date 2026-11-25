@@ -2,13 +2,13 @@ from .store import event, one, rows, transaction
 
 
 def revise(db, event_id, tenant, cpu, mem, revision, effective):
-    if min(cpu, mem, revision) < 0:
-        raise ValueError("negative budget")
+    if min(cpu, mem, effective) < 0 or revision <= 0:
+        return "invalid_budget"
     payload = dict(tenant=tenant, cpu=cpu, mem=mem, revision=revision, effective=effective)
     with transaction(db):
         old = one(db, "SELECT * FROM events WHERE id=?", (event_id,))
         if old:
-            return old["verdict"]
+            return event(db, event_id, "budget.revise", payload, old["verdict"])
         current = one(db, "SELECT * FROM budgets WHERE tenant=?", (tenant,))
         if current and revision <= current["revision"]:
             return event(db, event_id, "budget.revise", payload, "stale_revision")
@@ -20,10 +20,13 @@ def revise(db, event_id, tenant, cpu, mem, revision, effective):
 
 
 def grant(db, event_id, grant_id, tenant, cpu, mem, until_ts):
+    if cpu < 0 or mem < 0 or (cpu == 0 and mem == 0) or until_ts < 0:
+        return "invalid_grant"
     payload = dict(id=grant_id, tenant=tenant, cpu=cpu, mem=mem, until=until_ts)
     with transaction(db):
-        if one(db, "SELECT id FROM events WHERE id=?", (event_id,)):
-            return "accepted"
+        old = one(db, "SELECT * FROM events WHERE id=?", (event_id,))
+        if old:
+            return event(db, event_id, "budget.grant", payload, old["verdict"])
         if one(db, "SELECT id FROM grants WHERE id=?", (grant_id,)):
             return event(db, event_id, "budget.grant", payload, "grant_exists")
         db.execute("INSERT INTO grants(id,tenant,cpu,mem,until_ts) VALUES(?,?,?,?,?)", (grant_id, tenant, cpu, mem, until_ts))
@@ -40,8 +43,13 @@ def revoke(db, event_id, grant_id):
 
 
 def status(db, event_id, tenant, seq, frozen):
+    if seq < 0:
+        return "invalid_sequence"
     payload = dict(tenant=tenant, seq=seq, frozen=bool(frozen))
     with transaction(db):
+        previous = one(db, "SELECT * FROM events WHERE id=?", (event_id,))
+        if previous:
+            return event(db, event_id, "budget.status", payload, previous["verdict"])
         old = one(db, "SELECT * FROM tenant_state WHERE tenant=?", (tenant,))
         if old and seq <= old["seq"]:
             return event(db, event_id, "budget.status", payload, "stale_status")

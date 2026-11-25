@@ -28,19 +28,21 @@ COMMANDS = {
 
 def run(db_path, fixture, subsystem=None):
     db = open_db(db_path)
-    actions = json.loads(Path(fixture).read_text(encoding="utf-8"))["actions"]
-    results = []
-    for action in actions:
-        name = action["op"]
-        if name not in COMMANDS:
-            raise ValueError("unknown operation " + name)
-        result = COMMANDS[name](db, **action.get("args", {}))
-        results.append({"op": name, "result": result})
-    state = report(db)
-    if subsystem and not any(x["op"].startswith(subsystem + ".") for x in results):
-        raise ValueError("fixture has no operation for " + subsystem)
-    db.close()
-    return {"results": results, "state": state}
+    try:
+        actions = json.loads(Path(fixture).read_text(encoding="utf-8"))["actions"]
+        results = []
+        for action in actions:
+            name = action["op"]
+            if name not in COMMANDS:
+                raise ValueError("unknown operation " + name)
+            result = COMMANDS[name](db, **action.get("args", {}))
+            results.append({"op": name, "result": result})
+        state = report(db)
+        if subsystem and not any(x["op"].startswith(subsystem + ".") for x in results):
+            raise ValueError("fixture has no operation for " + subsystem)
+        return {"results": results, "state": state}
+    finally:
+        db.close()
 
 
 def main():

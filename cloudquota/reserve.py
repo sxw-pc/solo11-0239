@@ -3,19 +3,25 @@ from .store import event, one, rows, transaction
 
 
 def node(db, node_id, zone, cpu, mem, generation=1):
+    if cpu < 0 or mem < 0 or generation <= 0 or not zone:
+        return "invalid_capacity"
     with transaction(db):
         old = one(db, "SELECT * FROM nodes WHERE id=?", (node_id,))
         if old and generation <= old["generation"]:
-            return "stale_capacity"
+            same=(old["zone"],old["cpu"],old["mem"],old["generation"])==(zone,cpu,mem,generation)
+            return "accepted" if same else "stale_capacity"
         db.execute("INSERT INTO nodes VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET zone=excluded.zone,cpu=excluded.cpu,mem=excluded.mem,generation=excluded.generation", (node_id, zone, cpu, mem, generation))
         return "accepted"
 
 
 def request(db, request_id, tenant, grp, cpu, mem, interruptible=True):
+    if cpu <= 0 or mem <= 0 or not tenant or not grp:
+        return "invalid_request"
     with transaction(db):
         old = one(db, "SELECT * FROM requests WHERE id=?", (request_id,))
         if old:
-            return "exists" if all(old[k] == v for k, v in dict(tenant=tenant, grp=grp, cpu=cpu, mem=mem).items()) else "conflicting_request"
+            expected=dict(tenant=tenant,grp=grp,cpu=cpu,mem=mem,interruptible=int(interruptible))
+            return "exists" if all(old[k]==v for k,v in expected.items()) else "conflicting_request"
         db.execute("INSERT INTO requests VALUES(?,?,?,?,?,?)", (request_id, tenant, grp, cpu, mem, int(interruptible)))
         return "accepted"
 
@@ -28,10 +34,13 @@ def free_on_node(db, node_id):
 
 
 def place(db, event_id, reservation_id, request_id, lease_until, at):
+    if at < 0 or lease_until <= at:
+        return "invalid_lease_window"
     payload = dict(reservation_id=reservation_id, request_id=request_id, lease_until=lease_until, at=at)
     with transaction(db):
-        if one(db, "SELECT * FROM events WHERE id=?", (event_id,)):
-            return one(db, "SELECT verdict FROM events WHERE id=?", (event_id,))["verdict"]
+        old = one(db, "SELECT * FROM events WHERE id=?", (event_id,))
+        if old:
+            return event(db, event_id, "reserve.place", payload, old["verdict"])
         q = one(db, "SELECT * FROM requests WHERE id=?", (request_id,))
         if not q:
             return event(db, event_id, "reserve.place", payload, "unknown_request")
@@ -51,11 +60,18 @@ def place(db, event_id, reservation_id, request_id, lease_until, at):
             free_cpu, free_mem = free_on_node(db, n["id"])
             if free_cpu >= q["cpu"] and free_mem >= q["mem"]:
                 db.execute("INSERT INTO reservations VALUES(?,?,?,?,?,?,?,?)", (reservation_id, request_id, n["id"], "unallocated", lease_until, 0, 0, n["generation"]))
+                from .loan import allocate
+                source=allocate(db,reservation_id,at,in_transaction=True)
+                if source=="no_valid_source":
+                    db.execute("DELETE FROM reservations WHERE id=?",(reservation_id,))
+                    return event(db,event_id,"reserve.place",payload,"no_valid_source")
                 return event(db, event_id, "reserve.place", payload, f"reserved:{n['id']}")
         return event(db, event_id, "reserve.place", payload, "no_distinct_capacity")
 
 
 def start(db, event_id, reservation_id, generation, at):
+    if at < 0 or generation <= 0:
+        return "invalid_start"
     payload = dict(reservation_id=reservation_id, generation=generation, at=at)
     with transaction(db):
         r = one(db, "SELECT * FROM reservations WHERE id=?", (reservation_id,))
@@ -63,6 +79,8 @@ def start(db, event_id, reservation_id, generation, at):
             return event(db, event_id, "reserve.start", payload, "unknown_reservation")
         if generation != r["generation"] or r["released"] or at > r["lease_until"]:
             return event(db, event_id, "reserve.start", payload, "late_or_stale")
+        if not one(db, "SELECT * FROM funding WHERE reservation_id=?", (reservation_id,)):
+            return event(db, event_id, "reserve.start", payload, "unfunded_reservation")
         db.execute("UPDATE reservations SET started=1 WHERE id=?", (reservation_id,))
         return event(db, event_id, "reserve.start", payload, "started")
 
@@ -76,12 +94,17 @@ def expire(db, at):
 
 
 def policy(db, grp, min_alive):
+    if min_alive < 0:
+        return "invalid_group_policy"
     with transaction(db):
         db.execute("INSERT INTO group_policy VALUES(?,?) ON CONFLICT(grp) DO UPDATE SET min_alive=excluded.min_alive", (grp, min_alive))
 
 
 def shrink(db, case_id, reservation_id):
     with transaction(db):
+        old = one(db, "SELECT * FROM shrink_cases WHERE id=?", (case_id,))
+        if old:
+            return old["verdict"] if old["reservation_id"]==reservation_id else "case_identity_conflict"
         r = one(db, "SELECT r.*,q.grp FROM reservations r JOIN requests q ON q.id=r.request_id WHERE r.id=?", (reservation_id,))
         if not r or r["released"]:
             return "unknown_active_reservation"

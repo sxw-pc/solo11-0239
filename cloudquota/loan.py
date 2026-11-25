@@ -1,16 +1,24 @@
 from .budget import borrowing_status, usage
 from .store import event, one, rows, transaction
+from contextlib import nullcontext
 
 
 def offer(db, offer_id, lender, cpu, mem, floor_cpu, floor_mem, until_ts):
+    if cpu <= 0 or mem <= 0 or floor_cpu < 0 or floor_mem < 0 or until_ts <= 0:
+        return "invalid_offer"
     with transaction(db):
-        if one(db, "SELECT id FROM offers WHERE id=?", (offer_id,)):
-            return "exists"
+        old=one(db,"SELECT * FROM offers WHERE id=?",(offer_id,))
+        if old:
+            expected=(lender,cpu,mem,floor_cpu,floor_mem,until_ts)
+            actual=tuple(old[k] for k in ("lender","cpu","mem","floor_cpu","floor_mem","until_ts"))
+            return "exists" if actual==expected else "offer_identity_conflict"
         db.execute("INSERT INTO offers VALUES(?,?,?,?,?,?,?)", (offer_id, lender, cpu, mem, floor_cpu, floor_mem, until_ts))
         return "accepted"
 
 
 def issue(db, event_id, loan_id, offer_id, borrower, cpu, mem, due, at):
+    if cpu <= 0 or mem <= 0 or at < 0 or due <= at:
+        return "invalid_loan"
     payload = dict(loan_id=loan_id, offer_id=offer_id, borrower=borrower, cpu=cpu, mem=mem, due=due, at=at)
     with transaction(db):
         if one(db, "SELECT id FROM events WHERE id=?", (event_id,)):
@@ -37,6 +45,8 @@ def issue(db, event_id, loan_id, offer_id, borrower, cpu, mem, due, at):
 
 
 def repay(db, receipt_id, loan_id, cpu, mem):
+    if cpu < 0 or mem < 0 or (cpu == 0 and mem == 0):
+        return "invalid_repayment"
     with transaction(db):
         old = one(db, "SELECT * FROM repayments WHERE id=?", (receipt_id,))
         if old:
@@ -51,8 +61,8 @@ def repay(db, receipt_id, loan_id, cpu, mem):
         return "settled" if cpu == loan["cpu"] - loan["repaid_cpu"] and mem == loan["mem"] - loan["repaid_mem"] else "partial"
 
 
-def allocate(db, reservation_id, at):
-    with transaction(db):
+def allocate(db, reservation_id, at, in_transaction=False):
+    with (nullcontext() if in_transaction else transaction(db)):
         r = one(db, """SELECT r.*,q.tenant,q.cpu,q.mem FROM reservations r JOIN requests q ON q.id=r.request_id WHERE r.id=?""", (reservation_id,))
         if not r or r["released"]:
             return "unknown_active_reservation"
@@ -89,13 +99,16 @@ def allocate(db, reservation_id, at):
 
 
 def reclaim(db, case_id, loan_id, need_cpu, need_mem):
+    if need_cpu <= 0 or need_mem <= 0:
+        return "invalid_reclaim"
     with transaction(db):
         loan = one(db, "SELECT * FROM loans WHERE id=?", (loan_id,))
         if not loan:
             return "unknown_loan"
         old = one(db, "SELECT * FROM reclaim WHERE id=?", (case_id,))
         if old:
-            return old["status"]
+            same=(old["loan_id"],old["requested_cpu"],old["requested_mem"])==(loan_id,need_cpu,need_mem)
+            return old["status"] if same else "case_identity_conflict"
         deficit_cpu, deficit_mem = need_cpu, need_mem
         for r in rows(db, """SELECT r.id,q.cpu,q.mem FROM funding f JOIN reservations r ON r.id=f.reservation_id
             JOIN requests q ON q.id=r.request_id WHERE f.source_kind='loan' AND f.source_id=?
@@ -105,5 +118,5 @@ def reclaim(db, case_id, loan_id, need_cpu, need_mem):
             db.execute("UPDATE reservations SET released=1 WHERE id=?", (r["id"],))
             deficit_cpu -= r["cpu"]; deficit_mem -= r["mem"]
         status = "complete" if deficit_cpu <= 0 and deficit_mem <= 0 else "shortfall"
-        db.execute("INSERT INTO reclaim VALUES(?,?,?,?,?)", (case_id, loan_id, max(0,deficit_cpu), max(0,deficit_mem), status))
+        db.execute("INSERT INTO reclaim VALUES(?,?,?,?,?,?,?)", (case_id, loan_id, need_cpu, need_mem, max(0,deficit_cpu), max(0,deficit_mem), status))
         return status
