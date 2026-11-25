@@ -1,0 +1,1 @@
+{"actions":[{"op":"budget.revise","args":{"event_id":"b1","tenant":"t1","cpu":8,"mem":8,"revision":1,"effective":0}},{"op":"budget.grant","args":{"event_id":"g1","grant_id":"grant1","tenant":"t1","cpu":2,"mem":2,"until_ts":20}}]}
