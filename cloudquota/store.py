@@ -20,6 +20,16 @@ CREATE TABLE IF NOT EXISTS loans(id TEXT PRIMARY KEY, offer_id TEXT NOT NULL, bo
 CREATE TABLE IF NOT EXISTS repayments(id TEXT PRIMARY KEY, loan_id TEXT NOT NULL, cpu INTEGER NOT NULL, mem INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS funding(reservation_id TEXT PRIMARY KEY, source_kind TEXT NOT NULL, source_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS reclaim(id TEXT PRIMARY KEY, loan_id TEXT NOT NULL, requested_cpu INTEGER NOT NULL, requested_mem INTEGER NOT NULL, shortage_cpu INTEGER NOT NULL, shortage_mem INTEGER NOT NULL, status TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS clusters(id TEXT PRIMARY KEY, proof_generation INTEGER NOT NULL, proven_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS cluster_nodes(id TEXT PRIMARY KEY, cluster TEXT NOT NULL, zone TEXT NOT NULL, cpu INTEGER NOT NULL, mem INTEGER NOT NULL, generation INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS cluster_lots(id TEXT PRIMARY KEY, cluster TEXT NOT NULL, tenant TEXT NOT NULL, kind TEXT NOT NULL, cpu INTEGER NOT NULL, mem INTEGER NOT NULL, valid_from INTEGER NOT NULL, valid_until INTEGER NOT NULL, status TEXT NOT NULL, origin_cluster TEXT, source_ref TEXT, due INTEGER, floor_cpu INTEGER NOT NULL DEFAULT 0, floor_mem INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS transfers(id TEXT PRIMARY KEY, tenant TEXT NOT NULL, src_cluster TEXT NOT NULL, dst_cluster TEXT NOT NULL, lot_id TEXT NOT NULL, cpu INTEGER NOT NULL, mem INTEGER NOT NULL, valid_from INTEGER NOT NULL, valid_until INTEGER NOT NULL, src_proof_generation INTEGER NOT NULL, dst_proof_generation INTEGER NOT NULL, requested_at INTEGER NOT NULL, deadline INTEGER NOT NULL, state TEXT NOT NULL, updated_at INTEGER NOT NULL, displaces_reservation TEXT);
+CREATE TABLE IF NOT EXISTS transfer_earmarks(id TEXT PRIMARY KEY, transfer_id TEXT NOT NULL, cluster TEXT NOT NULL, lot_id TEXT NOT NULL, cpu INTEGER NOT NULL, mem INTEGER NOT NULL, status TEXT NOT NULL, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS transfer_seats(id TEXT PRIMARY KEY, transfer_id TEXT NOT NULL, cluster TEXT NOT NULL, node_id TEXT NOT NULL, zone TEXT NOT NULL, cpu INTEGER NOT NULL, mem INTEGER NOT NULL, status TEXT NOT NULL, generation INTEGER NOT NULL, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS transfer_signoffs(id TEXT PRIMARY KEY, transfer_id TEXT NOT NULL, reservation_id TEXT, verdict TEXT NOT NULL, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS transfer_deliveries(id TEXT PRIMARY KEY, transfer_id TEXT NOT NULL, cluster TEXT NOT NULL, kind TEXT NOT NULL, replica TEXT, cpu INTEGER NOT NULL, mem INTEGER NOT NULL, delivered_at INTEGER, deadline INTEGER, status TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS transfer_notices(id TEXT PRIMARY KEY, transfer_id TEXT NOT NULL, kind TEXT NOT NULL, at INTEGER NOT NULL, detail TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS transfer_billing(id TEXT PRIMARY KEY, transfer_id TEXT NOT NULL, kind TEXT NOT NULL, cpu INTEGER NOT NULL, mem INTEGER NOT NULL, amount TEXT NOT NULL, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS audit_log(seq INTEGER PRIMARY KEY AUTOINCREMENT,table_name TEXT NOT NULL,row_id INTEGER NOT NULL,action TEXT NOT NULL,payload TEXT);
 """
 
@@ -27,6 +37,9 @@ BUSINESS_TABLES = [
     "events", "budgets", "budget_history", "grants", "tenant_state", "nodes", "requests",
     "reservations", "group_policy", "shrink_cases", "offers", "loans",
     "repayments", "funding", "reclaim",
+    "clusters", "cluster_nodes", "cluster_lots", "transfers", "transfer_earmarks",
+    "transfer_seats", "transfer_signoffs", "transfer_deliveries", "transfer_notices",
+    "transfer_billing",
 ]
 
 
@@ -84,6 +97,16 @@ def report(db):
         "reservations": rows(db, "SELECT * FROM reservations ORDER BY id"),
         "loans": rows(db, "SELECT * FROM loans ORDER BY id"),
         "reclaim": rows(db, "SELECT * FROM reclaim ORDER BY id"),
+        "clusters": rows(db, "SELECT * FROM clusters ORDER BY id"),
+        "cluster_nodes": rows(db, "SELECT * FROM cluster_nodes ORDER BY id"),
+        "cluster_lots": rows(db, "SELECT * FROM cluster_lots ORDER BY id"),
+        "transfers": rows(db, "SELECT * FROM transfers ORDER BY id"),
+        "transfer_earmarks": rows(db, "SELECT * FROM transfer_earmarks ORDER BY id"),
+        "transfer_seats": rows(db, "SELECT * FROM transfer_seats ORDER BY id"),
+        "transfer_signoffs": rows(db, "SELECT * FROM transfer_signoffs ORDER BY id"),
+        "transfer_deliveries": rows(db, "SELECT * FROM transfer_deliveries ORDER BY id"),
+        "transfer_notices": rows(db, "SELECT * FROM transfer_notices ORDER BY id"),
+        "transfer_billing": rows(db, "SELECT * FROM transfer_billing ORDER BY id"),
         "events": rows(db, "SELECT * FROM events ORDER BY id"),
     }
     state["audit_replay"] = verify_replay(db)

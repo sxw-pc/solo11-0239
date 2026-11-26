@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from . import budget, loan, reserve
+from . import budget, cluster_transfer, loan, reserve
 from .store import open_db, report
 
 COMMANDS = {
@@ -23,6 +23,17 @@ COMMANDS = {
     "loan.repay": loan.repay,
     "loan.allocate": loan.allocate,
     "loan.reclaim": loan.reclaim,
+    "transfer.cluster": cluster_transfer.register_cluster,
+    "transfer.node": cluster_transfer.register_node,
+    "transfer.lot": cluster_transfer.register_lot,
+    "transfer.request": cluster_transfer.request_transfer,
+    "transfer.signoff": cluster_transfer.customer_signoff,
+    "transfer.prepare": cluster_transfer.prepare_source,
+    "transfer.target_ack": cluster_transfer.target_ack,
+    "transfer.deliver": cluster_transfer.start_delivery,
+    "transfer.cancel": cluster_transfer.cancel_transfer,
+    "transfer.fallback_purchase": cluster_transfer.fallback_purchase,
+    "transfer.start_purchase": cluster_transfer.start_purchase,
 }
 
 
@@ -47,7 +58,7 @@ def run(db_path, fixture, subsystem=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("subsystem", choices=["budget", "reserve", "loan", "all"])
+    parser.add_argument("subsystem", choices=["budget", "reserve", "loan", "transfer", "all"])
     parser.add_argument("fixture")
     parser.add_argument("--db", default="cloudquota.sqlite")
     args = parser.parse_args()
