@@ -1,9 +1,32 @@
 from .store import event, one, rows, transaction
 
 
-def revise(db, event_id, tenant, cpu, mem, revision, effective):
+def store_revision(db, tenant, cpu, mem, revision, effective):
+    """Write a budget version and its current-row projection without opening a transaction."""
+    db.execute("INSERT INTO budget_history VALUES(?,?,?,?,?)", (tenant, revision, cpu, mem, effective))
+    db.execute("INSERT INTO budgets VALUES(?,?,?,?,?) ON CONFLICT(tenant) DO UPDATE SET cpu=excluded.cpu,mem=excluded.mem,revision=excluded.revision,effective=excluded.effective", (tenant, cpu, mem, revision, effective))
+
+
+def record_authority(db, tenant, revision, authority_kind, at, *, application_id=None,
+                     emergency_id=None, actor=None, principals=None, digest=None, verdict=None):
+    """Durably answer *who* made a revision effective and under which authority."""
+    if isinstance(principals, (list, tuple, set)):
+        principals = ",".join(sorted(principals))
+    db.execute(
+        "INSERT INTO budget_authority(tenant,revision,authority_kind,application_id,emergency_id,actor,principals,digest,at,verdict)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant,revision) DO UPDATE SET"
+        " authority_kind=excluded.authority_kind,application_id=excluded.application_id,"
+        " emergency_id=excluded.emergency_id,actor=excluded.actor,principals=excluded.principals,"
+        " digest=excluded.digest,at=excluded.at,verdict=excluded.verdict",
+        (tenant, revision, authority_kind, application_id, emergency_id, actor,
+         principals, digest, at, verdict))
+
+
+def revise(db, event_id, tenant, cpu, mem, revision, effective, *, actor=None, at=None,
+           authority_kind="direct", application_id=None, principals=None, digest=None):
     if min(cpu, mem, effective) < 0 or revision <= 0:
         return "invalid_budget"
+    authority_at = effective if at is None else at
     payload = dict(tenant=tenant, cpu=cpu, mem=mem, revision=revision, effective=effective)
     with transaction(db):
         old = one(db, "SELECT * FROM events WHERE id=?", (event_id,))
@@ -11,11 +34,15 @@ def revise(db, event_id, tenant, cpu, mem, revision, effective):
             return event(db, event_id, "budget.revise", payload, old["verdict"])
         current = one(db, "SELECT * FROM budgets WHERE tenant=?", (tenant,))
         if current and revision <= current["revision"]:
+            # A stale attempt writes no authority row: the revision it names is already
+            # attributed to whoever really made it effective. The event keeps the attempt.
             return event(db, event_id, "budget.revise", payload, "stale_revision")
-        db.execute("INSERT INTO budget_history VALUES(?,?,?,?,?)",(tenant,revision,cpu,mem,effective))
-        db.execute("INSERT INTO budgets VALUES(?,?,?,?,?) ON CONFLICT(tenant) DO UPDATE SET cpu=excluded.cpu,mem=excluded.mem,revision=excluded.revision,effective=excluded.effective", (tenant, cpu, mem, revision, effective))
+        store_revision(db, tenant, cpu, mem, revision, effective)
         used = usage(db, tenant)
         verdict = "overcommitted" if used[0] > cpu or used[1] > mem else "accepted"
+        record_authority(db, tenant, revision, authority_kind, authority_at,
+                         application_id=application_id, actor=actor, principals=principals,
+                         digest=digest, verdict=verdict)
         return event(db, event_id, "budget.revise", payload, verdict)
 
 

@@ -46,12 +46,34 @@ def place(db, event_id, reservation_id, request_id, lease_until, at):
             return event(db, event_id, "reserve.place", payload, "unknown_request")
         if one(db, "SELECT id FROM reservations WHERE request_id=?", (request_id,)):
             return event(db, event_id, "reserve.place", payload, "already_reserved")
+        # A failed emergency post-review arms a tenant-wide hold: stop new reservations.
+        hold = one(db, "SELECT * FROM reservation_holds WHERE tenant=? AND lifted_at IS NULL",
+                   (q["tenant"],))
+        if hold:
+            return event(db, event_id, "reserve.place", payload, "new_reservations_blocked")
         avail_cpu, avail_mem, state = available(db, q["tenant"], at)
-        if state != "available" or avail_cpu < q["cpu"] or avail_mem < q["mem"]:
+        emergency = None
+        if state != "available":
             return event(db, event_id, "reserve.place", payload, "entitlement_denied")
-        end_cpu, end_mem, end_state = available(db, q["tenant"], lease_until)
-        if end_state != "available" or end_cpu < q["cpu"] or end_mem < q["mem"]:
-            return event(db, event_id, "reserve.place", payload, "source_expires_before_lease")
+        if avail_cpu < q["cpu"] or avail_mem < q["mem"]:
+            # The only lawful way to cover the deficit is a valid emergency authorization;
+            # it may back an interruptible, time-boxed seat, never a phantom permanent budget.
+            from .approval import match_emergency
+            match = match_emergency(db, q["tenant"], q["cpu"], q["mem"], at,
+                                    lease_until, q["interruptible"])
+            if match is None:
+                verdict = "entitlement_denied"
+            elif match.get("ok"):
+                emergency = match
+                verdict = None
+            else:
+                verdict = match.get("code") or "entitlement_denied"
+            if emergency is None:
+                return event(db, event_id, "reserve.place", payload, verdict)
+        if emergency is None:
+            end_cpu, end_mem, end_state = available(db, q["tenant"], lease_until)
+            if end_state != "available" or end_cpu < q["cpu"] or end_mem < q["mem"]:
+                return event(db, event_id, "reserve.place", payload, "source_expires_before_lease")
         occupied = {x["zone"] for x in rows(db, """SELECT n.zone FROM reservations r JOIN requests q ON q.id=r.request_id
             JOIN nodes n ON n.id=r.node_id WHERE q.grp=? AND r.released=0""", (q["grp"],))}
         for n in rows(db, "SELECT * FROM nodes ORDER BY id"):
@@ -60,11 +82,23 @@ def place(db, event_id, reservation_id, request_id, lease_until, at):
             free_cpu, free_mem = free_on_node(db, n["id"])
             if free_cpu >= q["cpu"] and free_mem >= q["mem"]:
                 db.execute("INSERT INTO reservations VALUES(?,?,?,?,?,?,?,?)", (reservation_id, request_id, n["id"], "unallocated", lease_until, 0, 0, n["generation"]))
-                from .loan import allocate
-                source=allocate(db,reservation_id,at,in_transaction=True)
-                if source=="no_valid_source":
-                    db.execute("DELETE FROM reservations WHERE id=?",(reservation_id,))
-                    return event(db,event_id,"reserve.place",payload,"no_valid_source")
+                if emergency is not None:
+                    em = emergency["auth"]
+                    # Unique funding source preserved; the whole seat is attributable to the
+                    # emergency case while the draw ledger tracks only the marginal extra cap.
+                    db.execute("INSERT INTO funding VALUES(?,?,?)",
+                               (reservation_id, "emergency", em["id"]))
+                    db.execute("UPDATE reservations SET source=? WHERE id=?",
+                               ("emergency:" + em["id"], reservation_id))
+                    db.execute("INSERT INTO emergency_draws VALUES(?,?,?,?,?,?,?)",
+                               (reservation_id, em["id"], q["tenant"],
+                                emergency["draw_cpu"], emergency["draw_mem"], at, 0))
+                else:
+                    from .loan import allocate
+                    source=allocate(db,reservation_id,at,in_transaction=True)
+                    if source=="no_valid_source":
+                        db.execute("DELETE FROM reservations WHERE id=?",(reservation_id,))
+                        return event(db,event_id,"reserve.place",payload,"no_valid_source")
                 return event(db, event_id, "reserve.place", payload, f"reserved:{n['id']}")
         return event(db, event_id, "reserve.place", payload, "no_distinct_capacity")
 

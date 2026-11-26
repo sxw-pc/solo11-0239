@@ -20,6 +20,19 @@ CREATE TABLE IF NOT EXISTS loans(id TEXT PRIMARY KEY, offer_id TEXT NOT NULL, bo
 CREATE TABLE IF NOT EXISTS repayments(id TEXT PRIMARY KEY, loan_id TEXT NOT NULL, cpu INTEGER NOT NULL, mem INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS funding(reservation_id TEXT PRIMARY KEY, source_kind TEXT NOT NULL, source_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS reclaim(id TEXT PRIMARY KEY, loan_id TEXT NOT NULL, requested_cpu INTEGER NOT NULL, requested_mem INTEGER NOT NULL, shortage_cpu INTEGER NOT NULL, shortage_mem INTEGER NOT NULL, status TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS approval_principals(id TEXT PRIMARY KEY, name TEXT NOT NULL, roles TEXT NOT NULL DEFAULT '', secret TEXT, active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS tenant_control(tenant TEXT PRIMARY KEY, controller_id TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS principal_relations(id TEXT PRIMARY KEY, principal_a TEXT NOT NULL, principal_b TEXT NOT NULL, kind TEXT NOT NULL, at INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS approval_seats(id TEXT PRIMARY KEY, holder_id TEXT NOT NULL, domain TEXT NOT NULL, tenants TEXT NOT NULL DEFAULT '*', max_cpu INTEGER NOT NULL, max_mem INTEGER NOT NULL, valid_from INTEGER NOT NULL, valid_until INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS approval_delegations(id TEXT PRIMARY KEY, seat_id TEXT NOT NULL, delegator_id TEXT NOT NULL, agent_id TEXT NOT NULL, granted_at INTEGER NOT NULL, revoked_at INTEGER, revoke_event TEXT, revoked_by TEXT);
+CREATE TABLE IF NOT EXISTS budget_applications(id TEXT PRIMARY KEY, digest TEXT NOT NULL, tenant TEXT NOT NULL, base_revision INTEGER NOT NULL, cpu INTEGER NOT NULL, mem INTEGER NOT NULL, effective_from INTEGER NOT NULL, effective_until INTEGER, funding_account TEXT NOT NULL, applicant_id TEXT NOT NULL, required_approvals INTEGER NOT NULL DEFAULT 2, required_domains TEXT NOT NULL DEFAULT '', sign_before INTEGER, submitted_at INTEGER NOT NULL, status TEXT NOT NULL, status_reason TEXT, resulting_revision INTEGER, committed_at INTEGER, commit_event TEXT);
+CREATE TABLE IF NOT EXISTS approval_signatures(id TEXT PRIMARY KEY, application_id TEXT NOT NULL, seat_id TEXT NOT NULL, signer_id TEXT NOT NULL, holder_id TEXT NOT NULL, delegation_id TEXT, digest TEXT NOT NULL, token TEXT, signed_at INTEGER NOT NULL, verified INTEGER NOT NULL DEFAULT 0, counted INTEGER NOT NULL DEFAULT 0, verdict TEXT NOT NULL, reason TEXT, UNIQUE(application_id, seat_id, signer_id));
+CREATE TABLE IF NOT EXISTS budget_authority(tenant TEXT NOT NULL, revision INTEGER NOT NULL, authority_kind TEXT NOT NULL, application_id TEXT, emergency_id TEXT, actor TEXT, principals TEXT, digest TEXT, at INTEGER NOT NULL, verdict TEXT, PRIMARY KEY(tenant,revision));
+CREATE TABLE IF NOT EXISTS emergency_incidents(id TEXT PRIMARY KEY, tenant TEXT NOT NULL, confirmed_by TEXT NOT NULL, confirmed_at INTEGER NOT NULL, requested_by TEXT, duty_lead INTEGER NOT NULL DEFAULT 1, note TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS emergency_auth(id TEXT PRIMARY KEY, tenant TEXT NOT NULL, incident_id TEXT NOT NULL, cpu_extra INTEGER NOT NULL, mem_extra INTEGER NOT NULL, effective_from INTEGER NOT NULL, expires_at INTEGER NOT NULL, requested_by TEXT NOT NULL, authorized_by TEXT NOT NULL, accountable_id TEXT NOT NULL, at INTEGER NOT NULL, status TEXT NOT NULL, reviewed_at INTEGER, reviewer_id TEXT, review_verdict TEXT, review_note TEXT);
+CREATE TABLE IF NOT EXISTS emergency_draws(reservation_id TEXT PRIMARY KEY, emergency_id TEXT NOT NULL, tenant TEXT NOT NULL, cpu_draw INTEGER NOT NULL, mem_draw INTEGER NOT NULL, at INTEGER NOT NULL, released INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS emergency_dispositions(id TEXT PRIMARY KEY, emergency_id TEXT NOT NULL, reservation_id TEXT NOT NULL, kind TEXT NOT NULL, at INTEGER NOT NULL, detail TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS reservation_holds(tenant TEXT PRIMARY KEY, reason TEXT NOT NULL, source_kind TEXT, source_id TEXT, at INTEGER NOT NULL, lifted_at INTEGER);
 CREATE TABLE IF NOT EXISTS audit_log(seq INTEGER PRIMARY KEY AUTOINCREMENT,table_name TEXT NOT NULL,row_id INTEGER NOT NULL,action TEXT NOT NULL,payload TEXT);
 """
 
@@ -27,6 +40,10 @@ BUSINESS_TABLES = [
     "events", "budgets", "budget_history", "grants", "tenant_state", "nodes", "requests",
     "reservations", "group_policy", "shrink_cases", "offers", "loans",
     "repayments", "funding", "reclaim",
+    "approval_principals", "tenant_control", "principal_relations", "approval_seats",
+    "approval_delegations", "budget_applications", "approval_signatures", "budget_authority",
+    "emergency_incidents", "emergency_auth", "emergency_draws", "emergency_dispositions",
+    "reservation_holds",
 ]
 
 
@@ -84,6 +101,19 @@ def report(db):
         "reservations": rows(db, "SELECT * FROM reservations ORDER BY id"),
         "loans": rows(db, "SELECT * FROM loans ORDER BY id"),
         "reclaim": rows(db, "SELECT * FROM reclaim ORDER BY id"),
+        "approval_principals": rows(db, "SELECT * FROM approval_principals ORDER BY id"),
+        "tenant_control": rows(db, "SELECT * FROM tenant_control ORDER BY tenant"),
+        "principal_relations": rows(db, "SELECT * FROM principal_relations ORDER BY id"),
+        "approval_seats": rows(db, "SELECT * FROM approval_seats ORDER BY id"),
+        "approval_delegations": rows(db, "SELECT * FROM approval_delegations ORDER BY id"),
+        "budget_applications": rows(db, "SELECT * FROM budget_applications ORDER BY id"),
+        "approval_signatures": rows(db, "SELECT * FROM approval_signatures ORDER BY id"),
+        "budget_authority": rows(db, "SELECT * FROM budget_authority ORDER BY tenant,revision"),
+        "emergency_incidents": rows(db, "SELECT * FROM emergency_incidents ORDER BY id"),
+        "emergency_auth": rows(db, "SELECT * FROM emergency_auth ORDER BY id"),
+        "emergency_draws": rows(db, "SELECT * FROM emergency_draws ORDER BY emergency_id,reservation_id"),
+        "emergency_dispositions": rows(db, "SELECT * FROM emergency_dispositions ORDER BY id"),
+        "reservation_holds": rows(db, "SELECT * FROM reservation_holds ORDER BY tenant"),
         "events": rows(db, "SELECT * FROM events ORDER BY id"),
     }
     state["audit_replay"] = verify_replay(db)

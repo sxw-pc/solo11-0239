@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from . import budget, loan, reserve
+from . import approval, budget, loan, reserve
 from .store import open_db, report
 
 COMMANDS = {
@@ -23,6 +23,24 @@ COMMANDS = {
     "loan.repay": loan.repay,
     "loan.allocate": loan.allocate,
     "loan.reclaim": loan.reclaim,
+    "approval.principal": approval.register_principal,
+    "approval.controller": approval.declare_controller,
+    "approval.relation": approval.relate_principals,
+    "approval.seat": approval.register_seat,
+    "approval.delegation": approval.grant_delegation,
+    "approval.revoke_delegation": approval.revoke_delegation,
+    "approval.submit": approval.submit_application,
+    "approval.sign": approval.cast_signature,
+    "approval.sign_as": approval.sign_as,
+    "approval.tally": approval.tally,
+    "approval.commit": approval.commit_application,
+    "approval.reject": approval.reject_application,
+    "approval.audit_report": approval.audit_report,
+    "emergency.incident": approval.register_incident,
+    "emergency.authorize": approval.authorize_emergency,
+    "emergency.review": approval.review_emergency,
+    "emergency.expire": approval.expire_emergency,
+    "emergency.lift_hold": approval.lift_hold,
 }
 
 
@@ -39,7 +57,10 @@ def run(db_path, fixture, subsystem=None):
             results.append({"op": name, "result": result})
         state = report(db)
         if subsystem and not any(x["op"].startswith(subsystem + ".") for x in results):
-            raise ValueError("fixture has no operation for " + subsystem)
+            if subsystem == "approval" and any(x["op"].startswith("emergency.") for x in results):
+                pass
+            else:
+                raise ValueError("fixture has no operation for " + subsystem)
         return {"results": results, "state": state}
     finally:
         db.close()
@@ -47,7 +68,7 @@ def run(db_path, fixture, subsystem=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("subsystem", choices=["budget", "reserve", "loan", "all"])
+    parser.add_argument("subsystem", choices=["budget", "reserve", "loan", "approval", "all"])
     parser.add_argument("fixture")
     parser.add_argument("--db", default="cloudquota.sqlite")
     args = parser.parse_args()

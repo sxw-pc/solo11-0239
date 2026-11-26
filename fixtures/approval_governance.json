@@ -1,0 +1,38 @@
+{
+  "actions": [
+    {"op": "approval.principal", "args": {"principal_id": "lin", "name": "林(申请人)", "roles": "ops,applicant", "secret": "k-lin"}},
+    {"op": "approval.principal", "args": {"principal_id": "wang", "name": "王(B席)", "roles": "approver,finance", "secret": "k-wang"}},
+    {"op": "approval.principal", "args": {"principal_id": "chen", "name": "陈(C席)", "roles": "approver,capacity", "secret": "k-chen"}},
+    {"op": "approval.principal", "args": {"principal_id": "zhou", "name": "周(值班负责人)", "roles": "duty_lead", "secret": "k-zhou"}},
+    {"op": "approval.principal", "args": {"principal_id": "shen", "name": "沈(复核)", "roles": "reviewer,audit", "secret": "k-shen"}},
+
+    {"op": "approval.seat", "args": {"seat_id": "A", "holder_id": "lin", "domain": "general", "max_cpu": 100, "max_mem": 100, "valid_from": 0, "valid_until": 100}},
+    {"op": "approval.seat", "args": {"seat_id": "B", "holder_id": "wang", "domain": "finance", "max_cpu": 100, "max_mem": 100, "valid_from": 0, "valid_until": 100}},
+    {"op": "approval.seat", "args": {"seat_id": "C", "holder_id": "chen", "domain": "capacity", "max_cpu": 100, "max_mem": 100, "valid_from": 0, "valid_until": 100}},
+
+    {"op": "budget.revise", "args": {"event_id": "b4", "tenant": "jia", "cpu": 8, "mem": 8, "revision": 4, "effective": 0, "actor": "ops-cli"}},
+    {"op": "budget.revise", "args": {"event_id": "b5", "tenant": "jia", "cpu": 10, "mem": 10, "revision": 5, "effective": 19, "actor": "finance-owner"}},
+
+    {"op": "approval.delegation", "args": {"delegation_id": "dBA", "seat_id": "B", "agent_id": "lin", "granted_at": 0}},
+    {"op": "approval.revoke_delegation", "args": {"event_id": "rd", "delegation_id": "dBA", "at": 18, "revoked_by": "governance"}},
+
+    {"op": "approval.submit", "args": {"event_id": "er", "application_id": "R", "tenant": "jia", "base_revision": 4, "cpu": 16, "mem": 16, "effective_from": 20, "funding_account": "acct-jia-001", "applicant_id": "lin", "at": 10}},
+    {"op": "approval.sign_as", "args": {"event_id": "sA", "signature_id": "gA", "application_id": "R", "seat_id": "A", "signer_id": "lin", "at": 11}},
+    {"op": "approval.sign_as", "args": {"event_id": "sB", "signature_id": "gB", "application_id": "R", "seat_id": "B", "signer_id": "lin", "at": 20, "delegation_id": "dBA"}},
+    {"op": "approval.sign_as", "args": {"event_id": "sC", "signature_id": "gC", "application_id": "R", "seat_id": "C", "signer_id": "chen", "at": 21}},
+    {"op": "approval.tally", "args": {"application_id": "R"}},
+    {"op": "approval.commit", "args": {"event_id": "cr", "application_id": "R", "at": 21, "actor": "runner"}},
+
+    {"op": "emergency.incident", "args": {"incident_id": "i1", "tenant": "jia", "confirmed_by": "zhou", "at": 20, "requested_by": "lin", "note": "capacity incident independently confirmed by duty lead"}},
+    {"op": "emergency.authorize", "args": {"event_id": "ea", "emergency_id": "e1", "tenant": "jia", "cpu_extra": 4, "mem_extra": 4, "at": 20, "expires_at": 22, "requested_by": "lin", "incident_id": "i1"}},
+
+    {"op": "reserve.node", "args": {"node_id": "n1", "zone": "z1", "cpu": 20, "mem": 20}},
+    {"op": "reserve.request", "args": {"request_id": "Q", "tenant": "jia", "grp": "gQ", "cpu": 12, "mem": 12, "interruptible": true}},
+    {"op": "reserve.place", "args": {"event_id": "pQ", "reservation_id": "rQ", "request_id": "Q", "lease_until": 22, "at": 20}},
+    {"op": "reserve.start", "args": {"event_id": "stQ", "reservation_id": "rQ", "generation": 1, "at": 21}},
+    {"op": "emergency.expire", "args": {"at": 22}},
+    {"op": "emergency.review", "args": {"event_id": "rv", "emergency_id": "e1", "reviewer_id": "shen", "at": 23, "passed": false, "note": "post-hoc control review"}},
+
+    {"op": "approval.audit_report", "args": {"tenant": "jia"}}
+  ]
+}
