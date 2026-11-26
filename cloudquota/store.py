@@ -20,6 +20,20 @@ CREATE TABLE IF NOT EXISTS loans(id TEXT PRIMARY KEY, offer_id TEXT NOT NULL, bo
 CREATE TABLE IF NOT EXISTS repayments(id TEXT PRIMARY KEY, loan_id TEXT NOT NULL, cpu INTEGER NOT NULL, mem INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS funding(reservation_id TEXT PRIMARY KEY, source_kind TEXT NOT NULL, source_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS reclaim(id TEXT PRIMARY KEY, loan_id TEXT NOT NULL, requested_cpu INTEGER NOT NULL, requested_mem INTEGER NOT NULL, shortage_cpu INTEGER NOT NULL, shortage_mem INTEGER NOT NULL, status TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS rate_cards(version TEXT PRIMARY KEY, run_micro INTEGER NOT NULL, commit_micro INTEGER NOT NULL, effective INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS meter_slices(id TEXT PRIMARY KEY, node_id TEXT NOT NULL, start_min INTEGER NOT NULL, end_min INTEGER NOT NULL, amount_micro INTEGER NOT NULL, received_at INTEGER NOT NULL, superseded_by TEXT);
+CREATE TABLE IF NOT EXISTS incidents(id TEXT PRIMARY KEY, node_id TEXT NOT NULL, start_min INTEGER NOT NULL, end_min INTEGER NOT NULL, amount_micro INTEGER NOT NULL, confirmed_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS contracts(reservation_id TEXT PRIMARY KEY, tenant TEXT NOT NULL, mode TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS start_docs(id TEXT PRIMARY KEY, reservation_id TEXT NOT NULL, actual_start INTEGER NOT NULL, received_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS release_docs(id TEXT PRIMARY KEY, reservation_id TEXT NOT NULL, released_at INTEGER NOT NULL, received_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS yield_agreements(id TEXT PRIMARY KEY, loan_id TEXT NOT NULL, lender TEXT NOT NULL, borrower TEXT NOT NULL, amount_micro INTEGER NOT NULL, agreed_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS period_closes(id TEXT PRIMARY KEY, start_min INTEGER NOT NULL, end_min INTEGER NOT NULL, closed_at INTEGER NOT NULL, snapshot TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS invoices(id TEXT PRIMARY KEY, tenant TEXT NOT NULL, period_start INTEGER NOT NULL, period_end INTEGER NOT NULL, issued_at INTEGER NOT NULL, status TEXT NOT NULL, UNIQUE(tenant,period_start,period_end));
+CREATE TABLE IF NOT EXISTS invoice_lines(invoice_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, ref TEXT NOT NULL, start_min INTEGER NOT NULL, end_min INTEGER NOT NULL, units INTEGER NOT NULL, rate_version TEXT, amount_micro INTEGER NOT NULL, PRIMARY KEY(invoice_id,seq));
+CREATE TABLE IF NOT EXISTS vouchers(id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL, kind TEXT NOT NULL, cause TEXT NOT NULL, issued_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS voucher_lines(voucher_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, ref TEXT NOT NULL, start_min INTEGER NOT NULL, end_min INTEGER NOT NULL, units INTEGER NOT NULL, rate_version TEXT, amount_micro INTEGER NOT NULL, PRIMARY KEY(voucher_id,seq));
+CREATE TABLE IF NOT EXISTS payments(id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL, tenant TEXT NOT NULL, amount_micro INTEGER NOT NULL, received_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS disputes(id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL, tenant TEXT NOT NULL, reason TEXT NOT NULL, claim TEXT, status TEXT NOT NULL, filed_at INTEGER NOT NULL, resolution TEXT, voucher_id TEXT);
 CREATE TABLE IF NOT EXISTS audit_log(seq INTEGER PRIMARY KEY AUTOINCREMENT,table_name TEXT NOT NULL,row_id INTEGER NOT NULL,action TEXT NOT NULL,payload TEXT);
 """
 
@@ -27,6 +41,9 @@ BUSINESS_TABLES = [
     "events", "budgets", "budget_history", "grants", "tenant_state", "nodes", "requests",
     "reservations", "group_policy", "shrink_cases", "offers", "loans",
     "repayments", "funding", "reclaim",
+    "rate_cards", "meter_slices", "incidents", "contracts", "start_docs", "release_docs",
+    "yield_agreements", "period_closes", "invoices", "invoice_lines", "vouchers",
+    "voucher_lines", "payments", "disputes",
 ]
 
 
@@ -85,6 +102,20 @@ def report(db):
         "loans": rows(db, "SELECT * FROM loans ORDER BY id"),
         "reclaim": rows(db, "SELECT * FROM reclaim ORDER BY id"),
         "events": rows(db, "SELECT * FROM events ORDER BY id"),
+        "rate_cards": rows(db, "SELECT * FROM rate_cards ORDER BY version"),
+        "meter_slices": rows(db, "SELECT * FROM meter_slices ORDER BY id"),
+        "incidents": rows(db, "SELECT * FROM incidents ORDER BY id"),
+        "contracts": rows(db, "SELECT * FROM contracts ORDER BY reservation_id"),
+        "start_docs": rows(db, "SELECT * FROM start_docs ORDER BY id"),
+        "release_docs": rows(db, "SELECT * FROM release_docs ORDER BY id"),
+        "yield_agreements": rows(db, "SELECT * FROM yield_agreements ORDER BY id"),
+        "period_closes": rows(db, "SELECT * FROM period_closes ORDER BY id"),
+        "invoices": rows(db, "SELECT * FROM invoices ORDER BY id"),
+        "invoice_lines": rows(db, "SELECT * FROM invoice_lines ORDER BY invoice_id,seq"),
+        "vouchers": rows(db, "SELECT * FROM vouchers ORDER BY id"),
+        "voucher_lines": rows(db, "SELECT * FROM voucher_lines ORDER BY voucher_id,seq"),
+        "payments": rows(db, "SELECT * FROM payments ORDER BY id"),
+        "disputes": rows(db, "SELECT * FROM disputes ORDER BY id"),
     }
     state["audit_replay"] = verify_replay(db)
     return state
