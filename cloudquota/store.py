@@ -21,12 +21,28 @@ CREATE TABLE IF NOT EXISTS repayments(id TEXT PRIMARY KEY, loan_id TEXT NOT NULL
 CREATE TABLE IF NOT EXISTS funding(reservation_id TEXT PRIMARY KEY, source_kind TEXT NOT NULL, source_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS reclaim(id TEXT PRIMARY KEY, loan_id TEXT NOT NULL, requested_cpu INTEGER NOT NULL, requested_mem INTEGER NOT NULL, shortage_cpu INTEGER NOT NULL, shortage_mem INTEGER NOT NULL, status TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS audit_log(seq INTEGER PRIMARY KEY AUTOINCREMENT,table_name TEXT NOT NULL,row_id INTEGER NOT NULL,action TEXT NOT NULL,payload TEXT);
+CREATE TABLE IF NOT EXISTS device_quotes(id TEXT PRIMARY KEY,node TEXT,device TEXT,nonce TEXT,boot_counter INTEGER,measurement TEXT,at INTEGER,issuer TEXT,digest TEXT);
+CREATE TABLE IF NOT EXISTS agent_receipts(id TEXT PRIMARY KEY,node TEXT,device TEXT,command TEXT,generation INTEGER,result TEXT,at INTEGER);
+CREATE TABLE IF NOT EXISTS dt_devices(device TEXT PRIMARY KEY,cert_serial TEXT,fingerprint TEXT NOT NULL UNIQUE,node TEXT,generation INTEGER,status TEXT NOT NULL,registered_at INTEGER,last_counter INTEGER,last_quote_at INTEGER,quarantined_at INTEGER);
+CREATE TABLE IF NOT EXISTS dt_revocations(device TEXT NOT NULL,revoked_at INTEGER NOT NULL,reason TEXT,PRIMARY KEY(device,revoked_at));
+CREATE TABLE IF NOT EXISTS dt_measurements(measurement TEXT NOT NULL,version TEXT NOT NULL,valid_from INTEGER NOT NULL,valid_until INTEGER,PRIMARY KEY(measurement,valid_from));
+CREATE TABLE IF NOT EXISTS dt_challenges(challenge_id TEXT PRIMARY KEY,nonce TEXT NOT NULL UNIQUE,device TEXT NOT NULL,node TEXT,issued_at INTEGER NOT NULL,issued_by TEXT,consumed_at INTEGER,consumed_quote TEXT);
+CREATE TABLE IF NOT EXISTS dt_quote_verdicts(quote_id TEXT PRIMARY KEY,device TEXT,node TEXT,at INTEGER,verdict TEXT NOT NULL,reason TEXT);
+CREATE TABLE IF NOT EXISTS dt_instances(id TEXT PRIMARY KEY,device TEXT NOT NULL,node TEXT NOT NULL,generation INTEGER NOT NULL,state TEXT NOT NULL,activated_at INTEGER NOT NULL,retired_at INTEGER,quote_id TEXT);
+CREATE TABLE IF NOT EXISTS dt_migrations(migration_id TEXT PRIMARY KEY,device TEXT NOT NULL,from_node TEXT NOT NULL,to_node TEXT NOT NULL,state TEXT NOT NULL,begun_at INTEGER NOT NULL,order_ref TEXT,access_ref TEXT,photo_ref TEXT,poweroff_at INTEGER,removal_verified_at INTEGER,challenge_id TEXT,install_quote_id TEXT,decided_at INTEGER,new_generation INTEGER);
+CREATE TABLE IF NOT EXISTS dt_disputes(id TEXT PRIMARY KEY,device TEXT NOT NULL,opened_at INTEGER NOT NULL,resolved_at INTEGER,state TEXT NOT NULL,reason TEXT,migration_id TEXT);
+CREATE TABLE IF NOT EXISTS dt_commands(command_id TEXT PRIMARY KEY,digest TEXT NOT NULL,device TEXT NOT NULL,node TEXT NOT NULL,generation INTEGER NOT NULL,issued_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS dt_receipt_verdicts(receipt_id TEXT PRIMARY KEY,device TEXT,node TEXT,at INTEGER,verdict TEXT NOT NULL,reason TEXT);
+CREATE TABLE IF NOT EXISTS dt_isolation(node TEXT PRIMARY KEY,device TEXT NOT NULL,since INTEGER NOT NULL,reason TEXT);
 """
 
 BUSINESS_TABLES = [
     "events", "budgets", "budget_history", "grants", "tenant_state", "nodes", "requests",
     "reservations", "group_policy", "shrink_cases", "offers", "loans",
     "repayments", "funding", "reclaim",
+    "device_quotes", "agent_receipts", "dt_devices", "dt_revocations", "dt_measurements",
+    "dt_challenges", "dt_quote_verdicts", "dt_instances", "dt_migrations", "dt_disputes",
+    "dt_commands", "dt_receipt_verdicts", "dt_isolation",
 ]
 
 
@@ -46,6 +62,13 @@ def open_db(path):
 
 @contextmanager
 def transaction(db):
+    # Re-entrant on the same connection: the outermost transaction owns commit/rollback,
+    # so a subsystem called inside another subsystem's decision cannot open a second one.
+    # sqlite3 exposes the native autocommit state, which is authoritative and needs no
+    # per-connection attributes (connections reject those in this build).
+    if db.in_transaction:
+        yield
+        return
     db.execute("BEGIN IMMEDIATE")
     try:
         yield

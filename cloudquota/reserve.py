@@ -1,11 +1,22 @@
 from .budget import available
+from . import device_trust
 from .store import event, one, rows, transaction
 
 
-def node(db, node_id, zone, cpu, mem, generation=1):
+def node(db, node_id, zone, cpu, mem, generation=1, device=None, receipt_id=None):
     if cpu < 0 or mem < 0 or generation <= 0 or not zone:
         return "invalid_capacity"
     with transaction(db):
+        if device is not None:
+            # Fail closed: capacity is only accepted from a proven exclusive possessor.
+            if receipt_id is not None:
+                rc = one(db, "SELECT at FROM agent_receipts WHERE id=?", (receipt_id,))
+                at = rc["at"] if rc else 0
+            else:
+                at = 0
+            verdict, reason = device_trust.authorize_capacity(db, node_id, device, at, receipt_id)
+            if verdict != "trusted":
+                return f"untrusted_capacity:{verdict}"
         old = one(db, "SELECT * FROM nodes WHERE id=?", (node_id,))
         if old and generation <= old["generation"]:
             same=(old["zone"],old["cpu"],old["mem"],old["generation"])==(zone,cpu,mem,generation)

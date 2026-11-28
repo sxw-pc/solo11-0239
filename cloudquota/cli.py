@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from . import budget, loan, reserve
+from . import budget, loan, reserve, attest, agent_command, device_trust
 from .store import open_db, report
 
 COMMANDS = {
@@ -23,6 +23,23 @@ COMMANDS = {
     "loan.repay": loan.repay,
     "loan.allocate": loan.allocate,
     "loan.reclaim": loan.reclaim,
+    "attest.quote": attest.quote,
+    "agent.receipt": agent_command.receipt,
+    "device.register": device_trust.register_device,
+    "device.revoke": device_trust.revoke_device,
+    "device.allow_measurement": device_trust.allow_measurement,
+    "device.challenge": device_trust.issue_challenge,
+    "device.evaluate_quote": device_trust.evaluate_quote,
+    "device.begin_migration": device_trust.begin_migration,
+    "device.removal_evidence": device_trust.removal_evidence,
+    "device.install_evidence": device_trust.install_evidence,
+    "device.decide_migration": device_trust.decide_migration,
+    "device.quarantine": device_trust.quarantine_device,
+    "device.re_register": device_trust.re_register,
+    "device.dispatch_command": device_trust.dispatch_command,
+    "device.evaluate_receipt": device_trust.evaluate_receipt,
+    "device.finalize_receipts": device_trust.finalize_receipts,
+    "device.authorize_capacity": device_trust.authorize_capacity,
 }
 
 
